@@ -56,7 +56,7 @@ docker exec "$NC" rm -rf "$APP"
 docker cp "$DIST" "$NC:$APP"
 docker exec "$NC" chown -R www-data:www-data "$APP"
 # Drop Memories' cached go-vod copy and stop the running one; it restarts on demand
-docker exec "$NC" sh -c 'rm -f /tmp/go-vod-*'
+docker exec "$NC" find /tmp -maxdepth 1 -type f -name 'go-vod-*' -delete
 docker exec "$NC" pkill -f go-vod- || true
 trap - EXIT
 occ maintenance:mode --off
