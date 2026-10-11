@@ -16,7 +16,8 @@ NC="${1:-nextcloud-aio-nextcloud}"
 APP=/var/www/html/custom_apps/memories
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 BACKUP="$(dirname "$SRC")/memories-backup-$(date +%Y%m%d-%H%M%S)"
-DIST="$(mktemp -d)/memories"
+TMP="$(mktemp -d)"
+DIST="$TMP/memories"
 
 occ() { docker exec --user www-data "$NC" php occ "$@"; }
 
@@ -24,10 +25,15 @@ echo "==> Building frontend"
 docker run --rm -v "$SRC":/app -w /app -e HOME=/tmp -u "$(id -u):$(id -g)" node:24 \
     sh -c "rm -rf js && npm ci --no-audit --no-fund && npm run build"
 
+echo "==> Building go-vod"
+docker run --rm -v "$SRC/go-vod":/src -v "$TMP":/out -w /src -u "$(id -u):$(id -g)" \
+    -e HOME=/tmp -e GOCACHE=/tmp/go-cache -e GOPATH=/tmp/go -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH=amd64 golang:1.27 \
+    sh -c "go test ./ffmpeg/ && go build -buildvcs=false -ldflags='-s -w' -o /out/go-vod-amd64"
+
 echo "==> Backing up installed app to $BACKUP"
 docker cp "$NC:$APP" "$BACKUP"
 
-# Reuse exiftool/go-vod binaries; they only match for the same upstream version.
+# Reuse exiftool binaries; they only match for the same upstream version.
 installed=$(grep -o '<version>[^<]*' "$BACKUP/appinfo/info.xml" | cut -d'>' -f2)
 fork=$(grep -o '<version>[^<]*' "$SRC/appinfo/info.xml" | cut -d'>' -f2)
 if [ "$installed" != "$fork" ]; then
@@ -40,6 +46,7 @@ fi
 
 mkdir -p "$DIST"
 cp -R "$SRC"/{appinfo,l10n,img,js,lib,templates,COPYING} "$SRC"/exiftest* "$BACKUP/bin-ext" "$DIST/"
+cp "$TMP/go-vod-amd64" "$DIST/bin-ext/go-vod-amd64"
 
 echo "==> Installing fork $fork into $NC"
 occ maintenance:mode --on
@@ -47,9 +54,12 @@ trap 'occ maintenance:mode --off' EXIT
 docker exec "$NC" rm -rf "$APP"
 docker cp "$DIST" "$NC:$APP"
 docker exec "$NC" chown -R www-data:www-data "$APP"
+# Drop Memories' cached go-vod copy and stop the running one; it restarts on demand
+docker exec "$NC" sh -c 'rm -f /tmp/go-vod-*'
+docker exec "$NC" pkill -f go-vod- || true
 trap - EXIT
 occ maintenance:mode --off
 occ upgrade # refuses to run in maintenance mode
 
-rm -rf "$(dirname "$DIST")"
+rm -rf "$TMP"
 echo "==> Done. Backup of the previous app: $BACKUP"

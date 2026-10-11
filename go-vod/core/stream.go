@@ -313,6 +313,7 @@ func (s *Stream) spec(startAt float64, isHls bool) ffmpeg.Spec {
 		Width:     s.width,
 		Height:    s.height,
 		QF:        s.c.QF,
+		Bitrate:   s.bitrate,
 		FrameRate: s.m.probe.FrameRate,
 		Rotation:  s.m.probe.Rotation,
 		HDR:       s.m.probe.HDR,

@@ -37,6 +37,10 @@ type Spec struct {
 	Width, Height int
 	// QF is the quality factor: CRF (x264), global_quality (VA-API), CQ (NVENC).
 	QF int
+	// Bitrate is the rendition target in bits/s. When set, VA-API uses VBR
+	// instead of global_quality: CQP on some drivers (notably AMD/Mesa)
+	// ignores content and yields several times the source bitrate.
+	Bitrate int
 	// FrameRate is the probed source fps, truncated to int. Only sizes the
 	// GOP when UseGopSize is set.
 	FrameRate int
@@ -224,7 +228,16 @@ func BuildArgs(s Spec) []string {
 
 	switch cv {
 	case EncoderVAAPI:
-		args = append(args, "-global_quality", fmt.Sprintf("%d", s.QF))
+		if s.Bitrate > 0 {
+			args = append(args,
+				"-rc_mode", "VBR",
+				"-b:v", fmt.Sprintf("%d", s.Bitrate),
+				"-maxrate", fmt.Sprintf("%d", s.Bitrate*3/2),
+				"-bufsize", fmt.Sprintf("%d", s.Bitrate*2),
+			)
+		} else {
+			args = append(args, "-global_quality", fmt.Sprintf("%d", s.QF))
+		}
 		if s.VAAPILowPower {
 			args = append(args, "-low_power", "1")
 		}
