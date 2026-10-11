@@ -23,7 +23,8 @@ occ() { docker exec --user www-data "$NC" php occ "$@"; }
 
 echo "==> Building frontend"
 # --init makes Ctrl+C stop the container; --name blocks a second concurrent build
-docker run --rm --init --name memories-build-js -v "$SRC":/app -w /app -e HOME=/tmp -u "$(id -u):$(id -g)" node:24 \
+docker run --rm --init --name memories-build-js -v "$SRC":/app -w /app -e HOME=/tmp -u "$(id -u):$(id -g)" \
+    -e MEMORIES_WEB_PATH=/custom_apps/memories node:24 \
     sh -c "rm -rf js && npm ci --no-audit --no-fund && npm run build"
 
 echo "==> Building go-vod"

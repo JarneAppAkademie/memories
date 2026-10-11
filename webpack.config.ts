@@ -24,6 +24,10 @@ const appName = process.env.npm_package_name!;
 const appVersion = process.env.npm_package_version!;
 const buildMode = process.env.NODE_ENV;
 const isDev = buildMode === 'development';
+
+// URL path the server serves the app from, e.g. /custom_apps/memories
+// on Nextcloud AIO. Used for the asset manifest hrefs of the Android app.
+const appWebPath = process.env.MEMORIES_WEB_PATH || path.join('/apps/', appName);
 console.info('Building', appName, appVersion, '\n');
 
 const manifestFileName = `${appName}-manifest.json`;
@@ -45,7 +49,7 @@ export default {
 
   output: {
     path: path.resolve(__dirname, 'js'),
-    publicPath: path.join('/apps/', appName, '/js/'),
+    publicPath: path.join(appWebPath, '/js/'),
 
     // Use a cryptographic hash of the file content for cache busting.
     // We will use this as a transparency proof.
