@@ -571,6 +571,7 @@ OC.L10N.register(
     "Failed to update properties of {albumName} with {properties}." : "Die Eigenschaften von {albumName} konnten nicht mit {properties} aktualisiert werden.",
     "Failed to rename {currentAlbumName} to {newAlbumName}." : "{currentAlbumName} konnte nicht in {newAlbumName} umbenannt werden.",
     "No items" : "Keine Elemente",
+    "All years" : "Alle Jahre",
     "_{n} item_::_{n} items_" : ["{n} Element","{n} Elemente"],
     "Shared by {user}" : "Geteilt von {user}",
     "General Failure" : "Allgemeiner Fehler",

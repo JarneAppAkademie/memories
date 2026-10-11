@@ -1,7 +1,8 @@
 <template>
-  <div class="dtm-container" v-if="currentmatter || viewName">
+  <div class="dtm-container" v-if="currentmatter || viewName || routeIsBase">
     <div v-if="viewName" class="header">{{ viewName }}</div>
     <component ref="child" v-if="currentmatter" :is="currentmatter" @load="$emit('load')" />
+    <YearStrip v-if="routeIsBase" />
   </div>
 </template>
 
@@ -14,13 +15,19 @@ import AlbumDynamicTopMatter from './AlbumDynamicTopMatter.vue';
 import FolderDynamicTopMatter from './FolderDynamicTopMatter.vue';
 import PlacesDynamicTopMatterVue from './PlacesDynamicTopMatter.vue';
 import OnThisDay from './OnThisDay.vue';
+import YearStrip from './YearStrip.vue';
 import * as strings from '@services/strings';
+import { routeYear } from '@services/years';
 
 // Auto-hide top header on public shares if redundant
 import './PublicShareHeader';
 
 export default defineComponent({
   name: 'DynamicTopMatter',
+
+  components: {
+    YearStrip,
+  },
 
   mixins: [UserMixin],
 
@@ -36,7 +43,7 @@ export default defineComponent({
         return markRaw(PlacesDynamicTopMatterVue);
       } else if (this.routeIsAlbums) {
         return markRaw(AlbumDynamicTopMatter);
-      } else if (this.routeIsBase && this.config.enable_top_memories) {
+      } else if (this.routeIsBase && this.config.enable_top_memories && !routeYear()) {
         return markRaw(OnThisDay);
       }
 
@@ -55,6 +62,10 @@ export default defineComponent({
       if (this.routeIsPublic && !this.routeIsFolderShare) {
         return this.initstate.shareTitle;
       }
+
+      // Year view of the main timeline
+      const year = routeYear();
+      if (year) return String(year);
 
       // Only static top matter for these routes
       if (this.routeIsTags || this.routeIsPeople || this.routeIsPlaces) {

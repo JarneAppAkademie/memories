@@ -132,6 +132,7 @@ import * as utils from '@services/utils';
 import * as nativex from '@native';
 
 import { API, DaysFilterType } from '@services/API';
+import { countYears, filterDaysByYear, routeYear, timelineYears } from '@services/years';
 
 import type { IDay, IHeadRow, IPhoto, IPhotoRow, IRow } from '@typings';
 
@@ -305,8 +306,8 @@ export default defineComponent({
     },
 
     async routeChange(to: RouteLocationNormalized, from?: RouteLocationNormalized) {
-      // Always do a hard refresh if the path changes
-      if (from?.path !== to.path) {
+      // Always do a hard refresh if the path or year view changes
+      if (from?.path !== to.path || from?.query.year !== to.query.year) {
         await this.refresh();
 
         // Focus on the recycler (e.g. after navigation click)
@@ -804,6 +805,13 @@ export default defineComponent({
      */
     async processDays(data: IDay[], cache: boolean) {
       if (!data || !this.state) return;
+
+      // Year view of the main timeline
+      if (this.routeIsBase) {
+        timelineYears.value = countYears(data);
+        const year = routeYear();
+        if (year) data = filterDaysByYear(data, year);
+      }
 
       const list: typeof this.list = [];
       const heads: typeof this.heads = new Map();
