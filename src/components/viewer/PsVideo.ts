@@ -22,6 +22,10 @@ type VideoContent = PsContent & {
   videoFailedOver: boolean;
   /** Playback started at least once (don't fail over mid-playback) */
   videoHasPlayed: boolean;
+  /** hls.js instance of the current HLS source */
+  videoHls?: Hls | null;
+  /** Consecutive mid-playback recovery attempts */
+  videoRecoveries?: number;
 };
 
 type PsVideoEvent = PsEvent & {
@@ -86,7 +90,29 @@ const HLS_LIVE_CONFIG: Partial<HlsConfig> = {
   /** Keep abandon responsive; slow transcode must downswitch, not stall. */
   maxStarvationDelay: 4,
   maxLoadingDelay: 4,
+  /**
+   * Segments can lag behind on slow transcodes: go-vod gives up after
+   * 10s (408, relayed as 500) or 409s on restart. hls.js never retries 4xx
+   * by default, so a single slow segment would end playback.
+   */
+  fragLoadPolicy: {
+    default: {
+      maxTimeToFirstByteMs: 25000,
+      maxLoadTimeMs: 120000,
+      timeoutRetry: { maxNumRetry: 6, retryDelayMs: 0, maxRetryDelayMs: 0 },
+      errorRetry: {
+        maxNumRetry: 10,
+        retryDelayMs: 1000,
+        maxRetryDelayMs: 8000,
+        shouldRetry: (config, count, _timeout, res, retry) =>
+          retry || (!!config && count < config.maxNumRetry && (res?.code === 408 || res?.code === 409)),
+      },
+    },
+  },
 };
+
+/** Mid-playback HLS reloads before falling back to the original file */
+const MAX_MID_RECOVERIES = 3;
 
 /**
  * Check if slide has video content
@@ -266,6 +292,10 @@ class VideoContentSetup {
       const hls = (e as CustomEvent).detail as Hls;
       Object.assign(hls.config, HLS_LIVE_CONFIG);
       this.pickInitialLevel(hls);
+
+      content.videoHls = hls;
+      const Events = (hls.constructor as typeof Hls).Events;
+      hls.on(Events.FRAG_LOADED, () => (content.videoRecoveries = 0));
     });
 
     player.addEventListener('playing', () => {
@@ -307,10 +337,12 @@ class VideoContentSetup {
 
   /**
    * Fall back between HLS and direct on initial load failure.
-   * Mid-playback errors are left to hls.js recovery.
+   * Mid-playback errors reload HLS, then fall back to direct.
    */
   onPlayerError(content: VideoContent, _e: MediaErrorEvent) {
-    if (!isVideoContent(content) || content.videoFailedOver || content.videoHasPlayed) return;
+    if (!isVideoContent(content)) return;
+    if (content.videoHasPlayed) return this.recoverMidPlayback(content);
+    if (content.videoFailedOver) return;
     if (utils.isLocalPhoto(content.data.photo)) return; // local-only
     if (staticConfig.getSync('vod_disable')) return;
 
@@ -337,6 +369,31 @@ class VideoContentSetup {
     }
   }
 
+  /** Resume a stalled HLS stream at the current position */
+  recoverMidPlayback(content: VideoContent) {
+    const player = content.videoPlayer;
+    if (!player || !content.videoIsHls) return;
+    const time = player.currentTime;
+
+    const recoveries = content.videoRecoveries ?? 0;
+    if (content.videoHls && recoveries < MAX_MID_RECOVERIES) {
+      content.videoRecoveries = recoveries + 1;
+      console.warn(`PsVideo: HLS failed mid-playback, reloading (${recoveries + 1}/${MAX_MID_RECOVERIES})`);
+      content.videoHls.startLoad(time);
+      return;
+    }
+
+    console.warn('PsVideo: HLS failed mid-playback, falling back to direct');
+    content.videoIsHls = false;
+    content.videoHls = null;
+    player.addEventListener('can-play', () => (player.currentTime = time), { once: true });
+    try {
+      player.src = this.getDirectSrc(content);
+    } catch {
+      // Ignore - video destroyed?
+    }
+  }
+
   destroyPlayer(content: VideoContent) {
     if (!isVideoContent(content)) return;
 
@@ -354,6 +411,8 @@ class VideoContentSetup {
     content.videoPlayer = null;
     content.videoFailedOver = false;
     content.videoHasPlayed = false;
+    content.videoHls = null;
+    content.videoRecoveries = 0;
   }
 
   onContentDestroy({ content }: PsVideoEvent) {
