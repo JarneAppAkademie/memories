@@ -145,6 +145,12 @@ export default defineComponent({
 
     /** Start gesture on container (passive) */
     touchstart(event: TouchEvent) {
+      // Ignore multi-touch gestures (e.g. pinch zoom)
+      if (event.touches.length > 1) {
+        this.on = false;
+        return;
+      }
+
       if (!this.allowSwipe) return;
       const touch = event.touches[0];
 
@@ -159,7 +165,7 @@ export default defineComponent({
 
     /** Execute gesture on container (passive) */
     touchmove(event: TouchEvent) {
-      if (!this.allowSwipe || !this.on) return;
+      if (!this.allowSwipe || !this.on || event.touches.length > 1) return;
       const touch = event.touches[0];
       this.end = touch.clientY;
 

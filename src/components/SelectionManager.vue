@@ -397,6 +397,9 @@ export default defineComponent({
     touchstartPhoto(photo: IPhoto, event: TouchEvent, rowIdx: number) {
       if (photo.flag & this.c.FLAG_PLACEHOLDER) return;
 
+      // A second finger is a pinch, not a long press
+      if (event.touches.length > 1) return this.resetTouchParams();
+
       // Bail if the user was scrolling the recycler recently
       // https://github.com/pulsejet/memories/issues/1066
       if (this.scrollerManager?.scrollingRecyclerNowTimer) return;
@@ -456,6 +459,7 @@ export default defineComponent({
      */
     touchmovePhoto(anchor: IPhoto, event: TouchEvent, rowIdx: number) {
       if (anchor.flag & this.c.FLAG_PLACEHOLDER) return;
+      if (event.touches.length > 1) return this.resetTouchParams();
 
       // Use first touch -- can't do much
       const touch: Touch = event.touches[0];

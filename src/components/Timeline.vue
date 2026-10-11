@@ -133,12 +133,16 @@ import * as nativex from '@native';
 
 import { API, DaysFilterType } from '@services/API';
 import { countYears, filterDaysByYear, routeYear, timelineYears } from '@services/years';
+import { setTimelineZoom, timelineZoom, zoomCols, zoomSize } from '@services/timeline-zoom';
 
 import type { IDay, IHeadRow, IPhoto, IPhotoRow, IRow } from '@typings';
 
 const SCROLL_LOAD_DELAY = 100; // Delay in loading data when scrolling
 const DESKTOP_ROW_HEIGHT = 200; // Height of row on desktop
 const MOBILE_ROW_HEIGHT = 120; // Approx row height on mobile
+const DENSE_COLS = 6; // No large tiles from this many columns
+const PINCH_STEP = 1.3; // Finger distance ratio for one zoom step
+const WHEEL_STEP = 60; // Accumulated ctrl+wheel delta for one zoom step
 const ROW_NUM_LPAD = 16; // Number of rows to load before and after viewport
 
 export default defineComponent({
@@ -210,6 +214,11 @@ export default defineComponent({
 
     /** State for request cancellations */
     state: Math.random(),
+
+    /** Finger distance at the last pinch zoom step */
+    pinchDist: 0,
+    /** Accumulated ctrl+wheel delta */
+    wheelDelta: 0,
   }),
 
   mounted() {
@@ -222,6 +231,14 @@ export default defineComponent({
       this.resizeObserver = markRaw(new ResizeObserver(() => this.handleResizeWithDelay()));
       this.resizeObserver.observe(container.$el);
     }
+
+    // Pinch and ctrl+wheel zoom
+    const recyclerEl = this.refs().recycler?.$el as HTMLElement | undefined;
+    recyclerEl?.addEventListener('touchstart', this.pinchStart, { passive: true });
+    recyclerEl?.addEventListener('touchmove', this.pinchMove, { passive: true });
+    recyclerEl?.addEventListener('touchend', this.pinchEnd, { passive: true });
+    recyclerEl?.addEventListener('touchcancel', this.pinchEnd, { passive: true });
+    recyclerEl?.addEventListener('wheel', this.wheelZoom, { passive: false });
 
     // Template refs ($refs) are not reactive in Vue 3, so prop bindings
     // like :recycler="refs().recycler" evaluated during the initial render
@@ -257,6 +274,14 @@ export default defineComponent({
     utils.bus.off('memories:timeline:deleted', this.deleteFromViewWithAnimation);
     utils.bus.off('memories:timeline:soft-refresh', this.softRefresh);
     utils.bus.off('memories:timeline:hard-refresh', this.refresh);
+
+    const recyclerEl = this.refs().recycler?.$el as HTMLElement | undefined;
+    recyclerEl?.removeEventListener('touchstart', this.pinchStart);
+    recyclerEl?.removeEventListener('touchmove', this.pinchMove);
+    recyclerEl?.removeEventListener('touchend', this.pinchEnd);
+    recyclerEl?.removeEventListener('touchcancel', this.pinchEnd);
+    recyclerEl?.removeEventListener('wheel', this.wheelZoom);
+
     this.resetState();
     this.state = 0;
   },
@@ -363,7 +388,7 @@ export default defineComponent({
     },
 
     allowBreakout() {
-      return _m.window.innerWidth <= 600 && !this.config.square_thumbs;
+      return _m.window.innerWidth <= 600 && !this.config.square_thumbs && this.numCols < DENSE_COLS;
     },
 
     /** Create new state */
@@ -440,8 +465,11 @@ export default defineComponent({
       utils.setRenewingTimeout(this, 'resizeTimer', this.recomputeSizes, 100);
     },
 
-    /** Recompute static sizes of containers */
-    recomputeSizes() {
+    /**
+     * Recompute static sizes of containers
+     * @param zoomed Zoom changed, so re-layout even if the size did not
+     */
+    recomputeSizes(zoomed = false) {
       // Get the container element
       const container = this.refs().container?.$el;
       if (!container) return;
@@ -473,7 +501,7 @@ export default defineComponent({
         this.rowWidth = targetWidth;
       }
 
-      if (!heightChanged && !widthChanged) {
+      if (!heightChanged && !widthChanged && !zoomed) {
         // If the target size is the same, nothing else could have
         // possibly changed either, so just skip
         return;
@@ -481,18 +509,25 @@ export default defineComponent({
 
       if (this.isMobileLayout()) {
         // Mobile
-        this.numCols = Math.max(3, Math.floor(this.rowWidth / MOBILE_ROW_HEIGHT));
+        this.numCols = zoomCols(Math.max(3, Math.floor(this.rowWidth / MOBILE_ROW_HEIGHT)));
         this.rowHeight = Math.floor(this.rowWidth / this.numCols);
       } else {
         // Desktop
+        const size = zoomSize(DESKTOP_ROW_HEIGHT);
         if (this.config.square_thumbs) {
-          this.numCols = Math.max(3, Math.floor(this.rowWidth / DESKTOP_ROW_HEIGHT));
+          this.numCols = Math.max(timelineZoom.value < 0 ? 1 : 3, Math.floor(this.rowWidth / size));
           this.rowHeight = Math.floor(this.rowWidth / this.numCols);
         } else {
           // As a heuristic, assume all images are 4:3 landscape
-          this.rowHeight = DESKTOP_ROW_HEIGHT;
+          this.rowHeight = size;
           this.numCols = Math.ceil(this.rowWidth / ((this.rowHeight * 4) / 3));
         }
+      }
+
+      // Rebuild all rows for the new grid
+      if (zoomed && this.list.length > 0) {
+        this.relayout();
+        return;
       }
 
       // Reflow if there are elements (this isn't an init call)
@@ -505,6 +540,102 @@ export default defineComponent({
 
         // Explicitly request a scroll event
         this.loadScrollView();
+      }
+    },
+
+    /** Rebuild all rows for the current grid, keeping the view on the same day */
+    async relayout() {
+      const recycler = this.refs().recycler!;
+      const before = this.refs().recyclerBefore?.clientHeight ?? 0;
+
+      // Height of each day including its header, in list order
+      const dayHeight = (head: IHeadRow) => head.size + (head.day.rows ?? []).reduce((h, r) => h + r.size, 0);
+
+      // Day at the top of the view and how far into it we are
+      let anchor: { dayId: number; frac: number } | null = null;
+      const top = recycler.$el.scrollTop - before;
+      let y = 0;
+      for (const head of top > 0 ? this.heads.values() : []) {
+        const height = dayHeight(head);
+        if (y + height > top) {
+          anchor = { dayId: head.dayId, frac: (top - y) / height };
+          break;
+        }
+        y += height;
+      }
+
+      // Placeholder rows; loaded days are laid out again when in view
+      const list: IRow[] = [];
+      for (const head of this.heads.values()) {
+        const day = head.day;
+        day.rows = [];
+        list.push(head);
+        for (let i = 0; i * this.numCols < day.count; i++) {
+          const row = this.addRow(day);
+          row.pct = Math.min(this.numCols, day.count - i * this.numCols);
+          list.push(row);
+        }
+      }
+      this.list = list;
+      this.sizedDays.clear();
+
+      // Scroll back to the same day once the new sizes are rendered
+      await this.$nextTick();
+      y = 0;
+      for (const head of anchor ? this.heads.values() : []) {
+        const height = dayHeight(head);
+        if (head.dayId === anchor!.dayId) {
+          recycler.$el.scrollTop = before + y + anchor!.frac * height;
+          break;
+        }
+        y += height;
+      }
+
+      await this.refs().scrollerManager.reflow();
+      this.scrollPositionChange();
+      this.scrollChange(this.currentStart, this.currentEnd, true);
+    },
+
+    /** Change the zoom by some steps; positive shows more photos */
+    zoomBy(steps: number) {
+      if (setTimelineZoom(timelineZoom.value + steps)) {
+        this.recomputeSizes(true);
+      }
+    },
+
+    pinchDistance(touches: TouchList) {
+      return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+    },
+
+    pinchStart(event: TouchEvent) {
+      if (event.touches.length !== 2) return;
+      this.pinchDist = this.pinchDistance(event.touches);
+      this.refs().selectionManager.resetTouchParams();
+    },
+
+    pinchMove(event: TouchEvent) {
+      if (!this.pinchDist || event.touches.length !== 2) return;
+      const dist = this.pinchDistance(event.touches);
+      const ratio = dist / this.pinchDist;
+      if (ratio > PINCH_STEP || ratio < 1 / PINCH_STEP) {
+        this.pinchDist = dist;
+        this.zoomBy(ratio > 1 ? -1 : 1); // spreading fingers enlarges photos
+      }
+    },
+
+    pinchEnd(event: TouchEvent) {
+      if (event.touches.length < 2) this.pinchDist = 0;
+    },
+
+    /** Ctrl+wheel and trackpad pinch on desktop */
+    wheelZoom(event: WheelEvent) {
+      if (!event.ctrlKey) return;
+      event.preventDefault(); // no browser zoom
+
+      this.wheelDelta += event.deltaY;
+      if (Math.abs(this.wheelDelta) >= WHEEL_STEP) {
+        this.zoomBy(Math.sign(this.wheelDelta));
+        this.wheelDelta = 0;
       }
     },
 
@@ -1531,6 +1662,7 @@ export default defineComponent({
 .recycler {
   will-change: scroll-position;
   contain: strict;
+  touch-action: pan-y; // pinch zooms the grid, not the page
   height: 300px;
   width: 100%;
   transition: opacity 0.2s ease-in-out;
