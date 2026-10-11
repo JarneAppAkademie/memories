@@ -22,11 +22,12 @@ DIST="$TMP/memories"
 occ() { docker exec --user www-data "$NC" php occ "$@"; }
 
 echo "==> Building frontend"
-docker run --rm -v "$SRC":/app -w /app -e HOME=/tmp -u "$(id -u):$(id -g)" node:24 \
+# --init makes Ctrl+C stop the container; --name blocks a second concurrent build
+docker run --rm --init --name memories-build-js -v "$SRC":/app -w /app -e HOME=/tmp -u "$(id -u):$(id -g)" node:24 \
     sh -c "rm -rf js && npm ci --no-audit --no-fund && npm run build"
 
 echo "==> Building go-vod"
-docker run --rm -v "$SRC/go-vod":/src -v "$TMP":/out -w /src -u "$(id -u):$(id -g)" \
+docker run --rm --init --name memories-build-go -v "$SRC/go-vod":/src -v "$TMP":/out -w /src -u "$(id -u):$(id -g)" \
     -e HOME=/tmp -e GOCACHE=/tmp/go-cache -e GOPATH=/tmp/go -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH=amd64 golang:1.27 \
     sh -c "go test ./ffmpeg/ && go build -buildvcs=false -ldflags='-s -w' -o /out/go-vod-amd64"
 
