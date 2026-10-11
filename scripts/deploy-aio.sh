@@ -47,7 +47,9 @@ trap 'occ maintenance:mode --off' EXIT
 docker exec "$NC" rm -rf "$APP"
 docker cp "$DIST" "$NC:$APP"
 docker exec "$NC" chown -R www-data:www-data "$APP"
-occ upgrade
+trap - EXIT
+occ maintenance:mode --off
+occ upgrade # refuses to run in maintenance mode
 
 rm -rf "$(dirname "$DIST")"
 echo "==> Done. Backup of the previous app: $BACKUP"
