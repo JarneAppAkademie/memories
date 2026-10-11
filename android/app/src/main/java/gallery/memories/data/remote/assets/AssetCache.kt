@@ -34,7 +34,8 @@ class AssetCache(private val ctx: Context) {
         /** Nextcloud web root (path prefix before index.php), "" for domain roots. */
         fun webrootOf(baseUrl: String): String {
             val path = Uri.parse(baseUrl).path ?: ""
-            return path.substringBefore("/index.php/")
+            // Pretty URLs drop index.php from the base URL
+            return path.substringBefore("/index.php/").substringBefore("/apps/memories")
         }
     }
 
