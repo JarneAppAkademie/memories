@@ -74,7 +74,7 @@ func TestBuildArgsVAAPIBitrate(t *testing.T) {
 	s := baseSpec()
 	s.VAAPI, s.Bitrate = true, 4000000
 	c := cmd(s, BuildArgs(s))
-	require.Contains(t, c, "-rc_mode VBR -b:v 4000000 -maxrate 6000000 -bufsize 8000000")
+	require.Contains(t, c, `-rc_mode VBR "-b:v" 4000000 -maxrate 6000000 -bufsize 8000000`)
 	require.NotContains(t, c, "-global_quality")
 }
 
