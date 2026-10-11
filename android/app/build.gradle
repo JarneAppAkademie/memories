@@ -21,6 +21,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Installs next to the store app
+            applicationIdSuffix = ".fork"
+        }
         release {
             minifyEnabled = true
             shrinkResources = true
