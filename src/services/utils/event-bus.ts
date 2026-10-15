@@ -48,6 +48,11 @@ export type BusEvent = {
   /** Albums were updated for these photos */
   'memories:albums:update': IPhoto[];
 
+  /** Timeline selection mode or size changed */
+  'memories:selection:changed': { active: boolean; size: number };
+  /** Toggle selection of this photo in the timeline */
+  'memories:selection:toggle': IPhoto;
+
   /** NativeX database was updated */
   'nativex:db:updated': null;
 } & {

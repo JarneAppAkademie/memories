@@ -4,6 +4,7 @@
       class="p-outer fill-block"
       :class="{
         selected: data.flag & c.FLAG_SELECTED,
+        selecting,
         placeholder: data.flag & c.FLAG_PLACEHOLDER,
         leaving: data.flag & c.FLAG_LEAVING,
         error: data.flag & c.FLAG_LOAD_FAIL,
@@ -119,6 +120,11 @@ export default defineComponent({
     day: {
       type: Object as PropType<IDay>,
       required: true,
+    },
+    /** Selection mode is active */
+    selecting: {
+      type: Boolean,
+      default: false,
     },
   },
 
@@ -417,6 +423,17 @@ $icon-size: $icon-half-size * 2;
 
   & {
     filter: invert(1) brightness(100);
+  }
+
+  .p-outer.selecting > & {
+    @include visible;
+
+    // Larger touch target, since tapping the photo opens the viewer
+    &::before {
+      content: '';
+      position: absolute;
+      inset: -10px;
+    }
   }
 
   .p-outer.selected > & {

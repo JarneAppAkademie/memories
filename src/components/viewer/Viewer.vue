@@ -41,6 +41,25 @@
             <BackIcon :size="24" />
           </template>
         </NcButton>
+
+        <NcButton
+          v-if="selection.active && currentPhoto"
+          class="select-toggle"
+          :class="{ selected: currentSelected }"
+          variant="tertiary-no-background"
+          :aria-label="currentSelected ? t('memories', 'Deselect') : t('memories', 'Select')"
+          :title="currentSelected ? t('memories', 'Deselect') : t('memories', 'Select')"
+          @click="
+            beep();
+            toggleSelected();
+          "
+        >
+          <template #icon>
+            <CheckCircleIcon v-if="currentSelected" :size="24" />
+            <CheckCircleOutlineIcon v-else :size="24" />
+          </template>
+          {{ n('memories', '{n} selected', '{n} selected', selection.size, { n: selection.size }) }}
+        </NcButton>
       </div>
 
       <div class="top-bar" v-if="photoswipe">
@@ -63,7 +82,7 @@
         </NcActions>
       </div>
 
-      <div class="top-date" v-if="photoswipe">
+      <div class="top-date" v-if="photoswipe && !selection.active">
         <div class="date-line" v-if="currentDateStr">
           {{ currentDateStr }}
         </div>
@@ -141,6 +160,8 @@ import type { MediaPlayerElement } from 'vidstack/elements';
 
 import LivePhotoIcon from '@components/icons/LivePhoto.vue';
 import BackIcon from 'vue-material-design-icons/ArrowLeft.vue';
+import CheckCircleIcon from 'vue-material-design-icons/CheckCircle.vue';
+import CheckCircleOutlineIcon from 'vue-material-design-icons/CheckboxBlankCircleOutline.vue';
 import ShareIcon from 'vue-material-design-icons/ShareVariant.vue';
 import DeleteIcon from 'vue-material-design-icons/TrashCanOutline.vue';
 import StarIcon from 'vue-material-design-icons/Star.vue';
@@ -181,6 +202,8 @@ export default defineComponent({
     NcActionButton,
     NcButton,
     BackIcon,
+    CheckCircleIcon,
+    CheckCircleOutlineIcon,
     ImageEditor,
     MobileBottomBar,
     ViewerBottomSheet,
@@ -236,6 +259,9 @@ export default defineComponent({
     /** Photo keys for which an imageInfo request is currently ongoing */
     imageInfoLoading: new Set<string>(),
 
+    /** Timeline selection state */
+    selection: { active: false, size: 0 },
+
     /** Tap-to-click patch handlers for viewer chrome buttons */
     tapPatch: markRaw(
       makeTapPatch({
@@ -251,6 +277,7 @@ export default defineComponent({
     utils.bus.on('files:file:updated', this.handleFileUpdated);
     utils.bus.on('memories:window:resize', this.handleWindowResize);
     utils.bus.on('memories:fragment:pop:viewer', this.close);
+    utils.bus.on('memories:selection:changed', this.handleSelectionChanged);
 
     // The viewer is a singleton
     const self = this;
@@ -275,6 +302,7 @@ export default defineComponent({
     utils.bus.off('files:file:updated', this.handleFileUpdated);
     utils.bus.off('memories:window:resize', this.handleWindowResize);
     utils.bus.off('memories:fragment:pop:viewer', this.close);
+    utils.bus.off('memories:selection:changed', this.handleSelectionChanged);
   },
 
   computed: {
@@ -482,6 +510,12 @@ export default defineComponent({
     /** Is the current slide a local photo */
     isLocal(): boolean {
       return utils.isLocalPhoto(this.currentPhoto!);
+    },
+
+    /** Is the current photo selected in the timeline */
+    currentSelected(): boolean {
+      // size is read so this re-evaluates on every toggle
+      return this.selection.size > 0 && Boolean((this.currentPhoto?.flag ?? 0) & this.c.FLAG_SELECTED);
     },
 
     /** Is the current photo a favorite */
@@ -1002,6 +1036,14 @@ export default defineComponent({
       });
 
       photoswipe.init();
+    },
+
+    handleSelectionChanged(state: { active: boolean; size: number }) {
+      this.selection = state;
+    },
+
+    toggleSelected() {
+      if (this.currentPhoto) utils.bus.emit('memories:selection:toggle', this.currentPhoto);
     },
 
     /** Close the viewer */
@@ -1537,6 +1579,11 @@ export default defineComponent({
 
 .top-bar-left {
   left: 8px;
+  display: flex;
+
+  .select-toggle.selected :deep(.material-design-icon) {
+    color: var(--color-primary-element-light, var(--color-primary));
+  }
 }
 
 .top-bar {

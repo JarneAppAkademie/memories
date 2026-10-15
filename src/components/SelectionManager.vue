@@ -173,6 +173,7 @@ export default defineComponent({
 
   emits: {
     updateLoading: (delta: number) => true,
+    selecting: (active: boolean) => true,
   },
 
   data: () => ({
@@ -304,17 +305,28 @@ export default defineComponent({
     // Subscribe to global events
     utils.bus.on('memories:albums:update', this.clear);
     utils.bus.on('memories:fragment:pop:selection', this.clear);
+    utils.bus.on('memories:fragment:pop:viewer', this.selectionChanged);
+    utils.bus.on('memories:selection:toggle', this.toggleFromViewer);
   },
 
   beforeUnmount() {
     // Unsubscribe from global events
     utils.bus.off('memories:albums:update', this.clear);
     utils.bus.off('memories:fragment:pop:selection', this.clear);
+    utils.bus.off('memories:fragment:pop:viewer', this.selectionChanged);
+    utils.bus.off('memories:selection:toggle', this.toggleFromViewer);
+    utils.bus.emit('memories:selection:changed', { active: false, size: 0 });
   },
 
   watch: {
     show(value: boolean, from: boolean) {
       utils.fragment.if(value, utils.fragment.types.selection);
+      this.$emit('selecting', value);
+      this.emitChanged();
+    },
+
+    size() {
+      this.emitChanged();
     },
   },
 
@@ -345,8 +357,18 @@ export default defineComponent({
 
     /** Trigger to update props from selection set */
     selectionChanged() {
-      this.show = this.selection.size > 0;
+      // Selection mode survives deselecting everything inside the viewer
+      this.show = this.selection.size > 0 || (this.show && !!utils.fragment.viewer);
       this.size = this.selection.size;
+    },
+
+    emitChanged() {
+      utils.bus.emit('memories:selection:changed', { active: this.show, size: this.size });
+    },
+
+    /** Toggle selection of the photo shown in the viewer */
+    toggleFromViewer(photo: IPhoto) {
+      if (this.show) this.selectPhoto(photo);
     },
 
     /** Is the selection empty */
@@ -377,7 +399,7 @@ export default defineComponent({
       if (event?.pointerType === 'touch') return; // let touch events handle this
       if (event?.pointerType === 'mouse' && event?.button !== 0) return; // only left click for mouse
 
-      if (!this.empty() || event?.ctrlKey || event?.shiftKey) {
+      if (event?.ctrlKey || event?.shiftKey) {
         this.clickSelectionIcon(photo, event, rowIdx);
       } else {
         this.openViewer(photo);

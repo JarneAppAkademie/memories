@@ -66,6 +66,7 @@
             }"
             :data="photo"
             :day="item.day"
+            :selecting="selecting"
             @select="refs().selectionManager.clickSelectionIcon(photo, $event, index)"
             @pointerdown="refs().selectionManager.clickPhoto(photo, $event, index)"
             @touchstart="refs().selectionManager.touchstartPhoto(photo, $event, index)"
@@ -99,6 +100,7 @@
       :recycler="refs().recycler?.$el"
       :scrollerManager="refs().scrollerManager"
       @updateLoading="updateLoading"
+      @selecting="selecting = $event"
     />
   </SwipeRefresh>
 </template>
@@ -176,6 +178,8 @@ export default defineComponent({
     list: [] as IRow[],
     /** Dynamic top matter has standalone content */
     dtmContent: false,
+    /** Selection mode is active */
+    selecting: false,
     /** Computed number of columns */
     numCols: 0,
     /** Ordered header rows for dayId key  */
