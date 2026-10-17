@@ -33,6 +33,8 @@ use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\Attribute\PublicPage;
 use OCP\AppFramework\Http\JSONResponse;
+use OCP\ITagManager;
+use OCP\ITags;
 
 const IMAGICK_SAFE = '/^image\/(x-)?(png|jpeg|gif|bmp|tiff|webp|hei(f|c)|avif|dcraw)$/';
 
@@ -312,6 +314,41 @@ final class ImageController extends GenericApiController
             }
 
             return $this->info($id, true);
+        });
+    }
+
+    /**
+     * Set the favorite state of a file for the current user.
+     * Unlike WebDAV, this also works for album files owned by others.
+     */
+    #[NoAdminRequired]
+    public function favorite(int $id, bool $favorite): Http\Response
+    {
+        return Util::guardEx(function () use ($id, $favorite) {
+            if (!Util::isLoggedIn()) {
+                throw Exceptions::NotLoggedIn();
+            }
+
+            $file = $this->fs->getUserFile($id);
+
+            $tagger = \OCP\Server::get(ITagManager::class)->load('files');
+            if (null === $tagger) {
+                throw Exceptions::NotLoggedIn();
+            }
+
+            $tags = $tagger->getTagsForObjects([$id]);
+            $current = \is_array($tags) && \in_array(ITags::TAG_FAVORITE, $tags[$id] ?? [], true);
+            if ($current !== $favorite) {
+                // Pass the path, since the file may not be in the user's folder
+                $ok = $favorite
+                    ? $tagger->tagAs($id, ITags::TAG_FAVORITE, $file->getPath())
+                    : $tagger->unTag($id, ITags::TAG_FAVORITE, $file->getPath());
+                if (!$ok) {
+                    throw Exceptions::Generic(new \Exception("Failed to favorite {$file->getName()}"));
+                }
+            }
+
+            return new JSONResponse(['favorite' => $favorite], Http::STATUS_OK);
         });
     }
 

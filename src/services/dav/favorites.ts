@@ -1,8 +1,10 @@
+import axios from '@nextcloud/axios';
 import { showError } from '@nextcloud/dialogs';
 
 import client from './client';
 import * as base from './base';
 
+import { API } from '@services/API';
 import { translate as t } from '@services/l10n';
 import { constants as c } from '@services/utils';
 
@@ -44,6 +46,12 @@ export async function* favoritePhotos(photos: IPhoto[], favoriteState: boolean) 
     return;
   }
 
+  // Photos only lets owners favorite via the album DAV path
+  if (_m.route.name === _m.routes.Albums.name) {
+    yield* favoriteViaApi(photos, favoriteState);
+    return;
+  }
+
   // Get files data
   let fileInfos: IFileInfo[] = [];
   try {
@@ -72,6 +80,26 @@ export async function* favoritePhotos(photos: IPhoto[], favoriteState: boolean) 
           fileName: fileInfo.originalFilename,
         }),
       );
+      return 0;
+    }
+  });
+
+  yield* base.runInParallel(calls, 10);
+}
+
+/**
+ * Favorite photos using the Memories API, which also
+ * works for files in shared albums owned by others.
+ */
+async function* favoriteViaApi(photos: IPhoto[], favoriteState: boolean) {
+  const calls = photos.map((photo) => async () => {
+    try {
+      await axios.patch(API.IMAGE_FAVORITE(photo.fileid), { favorite: favoriteState });
+      favoriteSetFlag(photo, favoriteState);
+      return photo.fileid;
+    } catch (error) {
+      console.error('Failed to favorite', photo, error);
+      showError(t('memories', 'Failed to favorite {fileName}.', { fileName: photo.basename ?? photo.fileid }));
       return 0;
     }
   });
