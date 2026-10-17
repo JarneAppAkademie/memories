@@ -62,6 +62,9 @@ docker exec "$NC" pkill -f go-vod- || true
 trap - EXIT
 occ maintenance:mode --off
 occ upgrade # refuses to run in maintenance mode
+# Routes are cached in APCu keyed on app versions; restart PHP so new routes apply
+echo "==> Restarting $NC"
+docker restart "$NC" >/dev/null
 
 rm -rf "$TMP"
 echo "==> Done. Backup of the previous app: $BACKUP"
