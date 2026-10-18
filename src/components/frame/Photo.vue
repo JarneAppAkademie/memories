@@ -427,13 +427,6 @@ $icon-size: $icon-half-size * 2;
 
   .p-outer.selecting > & {
     @include visible;
-
-    // Larger touch target, since tapping the photo opens the viewer
-    &::before {
-      content: '';
-      position: absolute;
-      inset: -10px;
-    }
   }
 
   .p-outer.selected > & {

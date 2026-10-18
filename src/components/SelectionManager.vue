@@ -187,6 +187,8 @@ export default defineComponent({
     prevTouch: null as Touch | null,
     touchTimer: 0,
     touchMoved: false,
+    /** Long press while selecting, not dragged yet (release opens the viewer) */
+    touchHeld: false,
     touchPrevSel: null as Selection | null,
     prevOver: null as IPhoto | null,
     touchScrollInterval: 0,
@@ -439,7 +441,9 @@ export default defineComponent({
       this.touchMoved = false;
       this.touchTimer = window.setTimeout(() => {
         if (this.touchAnchor === photo) {
-          this.selectPhoto(photo, true);
+          // While selecting, the anchor is selected only once a drag starts
+          if (this.show) this.touchHeld = true;
+          else this.selectPhoto(photo, true);
         }
         this.touchTimer = 0;
       }, 600);
@@ -450,9 +454,12 @@ export default defineComponent({
       if (photo.flag & this.c.FLAG_PLACEHOLDER) return;
       delete this.rows[rowIdx].virtualSticky;
 
-      if (this.touchTimer && !this.touchMoved) {
+      if (this.touchHeld) {
+        this.openViewer(photo);
+      } else if (this.touchTimer && !this.touchMoved) {
         // Register a single tap, only if the touch hadn't moved at all
-        this.clickPhoto(photo, null, rowIdx);
+        if (this.show) this.selectPhoto(photo);
+        else this.clickPhoto(photo, null, rowIdx);
       }
 
       this.resetTouchParams();
@@ -461,6 +468,7 @@ export default defineComponent({
     resetTouchParams() {
       this.touchAnchor = null;
       this.touchMoved = false;
+      this.touchHeld = false;
       this.prevOver = null;
 
       window.clearTimeout(this.touchTimer);
@@ -517,6 +525,18 @@ export default defineComponent({
       // Prevent scrolling
       event.preventDefault();
       event.stopPropagation();
+
+      // A held touch becomes a drag only once it leaves the anchor area
+      if (this.touchHeld) {
+        if (
+          this.prevTouch &&
+          Math.abs(this.prevTouch.clientX - touch.clientX) < 30 &&
+          Math.abs(this.prevTouch.clientY - touch.clientY) < 30
+        ) {
+          return;
+        }
+        this.touchHeld = false;
+      }
 
       // This should never happen
       if (!touch) return;
