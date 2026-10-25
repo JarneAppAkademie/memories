@@ -18,6 +18,9 @@ trait TimelineQueryFilters
                 $query->expr()->eq('vcoi.objid', 'm.fileid'),
                 $query->expr()->in('vcoi.categoryid', $this->getFavoriteVCategoryFun($query)),
             ));
+
+            // Favorites may be in albums of others, outside the user's folders
+            $this->_includeAlbumFiles = Util::albumsIsEnabled();
         }
     }
 

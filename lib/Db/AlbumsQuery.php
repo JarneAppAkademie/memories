@@ -7,6 +7,7 @@ namespace OCA\Memories\Db;
 use OCA\Memories\ClustersBackend\AlbumsBackend;
 use OCA\Memories\ClustersBackend\Covers;
 use OCP\DB\QueryBuilder\IQueryBuilder;
+use OCP\DB\QueryBuilder\IQueryFunction;
 use OCP\IDBConnection;
 
 final class AlbumsQuery
@@ -149,6 +150,38 @@ final class AlbumsQuery
         ));
 
         return $query->executeQuery()->fetchOne();
+    }
+
+    /**
+     * EXISTS clause for files in an album the user owns or collaborates on.
+     *
+     * @param IQueryBuilder $query   Outer query (parameters are bound here)
+     * @param string        $uid     User ID
+     * @param string        $fileCol Column of the outer query with the file ID
+     */
+    public function userHasFileClause(IQueryBuilder &$query, string $uid, string $fileCol): IQueryFunction
+    {
+        $sq = $query->getConnection()->getQueryBuilder();
+        $sq->select($sq->expr()->literal(1))->from('photos_albums_files', 'paf_x')
+            ->leftJoin('paf_x', 'photos_albums', 'pa_x', $sq->expr()->andX(
+                $sq->expr()->eq('pa_x.album_id', 'paf_x.album_id'),
+                $sq->expr()->eq('pa_x.user', $query->createNamedParameter($uid)),
+            ))
+            ->leftJoin('paf_x', $this->collaboratorsTable(), 'pc_x', $sq->expr()->andX(
+                $sq->expr()->eq('pc_x.album_id', 'paf_x.album_id'),
+                $sq->expr()->in('pc_x.collaborator_id', $query->createNamedParameter(
+                    $this->getSelfCollaborators($uid),
+                    IQueryBuilder::PARAM_STR_ARRAY,
+                )),
+            ))
+            ->where($sq->expr()->eq('paf_x.file_id', $fileCol))
+            ->andWhere($sq->expr()->orX(
+                $sq->expr()->isNotNull('pa_x.album_id'),
+                $sq->expr()->isNotNull('pc_x.album_id'),
+            ))
+        ;
+
+        return SQL::exists($query, $sq);
     }
 
     /**

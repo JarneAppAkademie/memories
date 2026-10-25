@@ -258,7 +258,13 @@ trait TimelineQueryDays
             ;
 
             // Filter files in one of the timeline folders
-            $query->andWhere(SQL::exists($query, $sq));
+            $inFolders = SQL::exists($query, $sq);
+            if ($this->_includeAlbumFiles) {
+                $inAlbums = \OC::$server->get(AlbumsQuery::class)->userHasFileClause($query, Util::getUID(), 'm.fileid');
+                $query->andWhere($query->expr()->orX($inFolders, $inAlbums));
+            } else {
+                $query->andWhere($inFolders);
+            }
         } else {
             // If getting non-recursively folder only check for parent
             $query->andWhere($query->expr()->eq($parent, $query->createNamedParameter($root->getOneId(), IQueryBuilder::PARAM_INT)));

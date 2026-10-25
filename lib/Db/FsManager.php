@@ -120,6 +120,9 @@ final class FsManager
         $paths = [];
         if ($path = $this->getRequestFolder()) {
             $paths = [$path];
+        } elseif ($this->request->getParam('fav')) {
+            // Favorites are explicit, so show them from anywhere
+            $paths = ['/'];
         } else {
             $paths = Util::getTimelinePaths($uid);
         }

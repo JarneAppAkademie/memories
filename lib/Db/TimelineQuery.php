@@ -30,6 +30,7 @@ final class TimelineQuery
 
     protected ?TimelineRoot $_root = null; // cache
     protected bool $_rootEmptyAllowed = false;
+    protected bool $_includeAlbumFiles = false;
 
     public function __construct(
         protected IDBConnection $connection,

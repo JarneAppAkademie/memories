@@ -329,7 +329,8 @@ final class ImageController extends GenericApiController
                 throw Exceptions::NotLoggedIn();
             }
 
-            $file = $this->fs->getUserFile($id);
+            // Check albums first: a miss in the user's folder sets up all their mounts
+            $file = $this->fs->getAlbumFile($id) ?? $this->fs->getUserFile($id);
 
             $tagger = \OCP\Server::get(ITagManager::class)->load('files');
             if (null === $tagger) {
