@@ -18,17 +18,19 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"
 BACKUP="$(dirname "$SRC")/memories-backup-$(date +%Y%m%d-%H%M%S)"
 TMP="$(mktemp -d)"
 DIST="$TMP/memories"
+# Build as the invoking user even under sudo, so repo files never end up root-owned
+OWNER="${SUDO_UID:-$(id -u)}:${SUDO_GID:-$(id -g)}"
 
 occ() { docker exec --user www-data "$NC" php occ "$@"; }
 
 echo "==> Building frontend"
 # --init makes Ctrl+C stop the container; --name blocks a second concurrent build
-docker run --rm --init --name memories-build-js -v "$SRC":/app -w /app -e HOME=/tmp -u "$(id -u):$(id -g)" \
+docker run --rm --init --name memories-build-js -v "$SRC":/app -w /app -e HOME=/tmp -u "$OWNER" \
     -e MEMORIES_WEB_PATH=/custom_apps/memories node:24 \
     sh -c "rm -rf js && npm ci --no-audit --no-fund && npm run build"
 
 echo "==> Building go-vod"
-docker run --rm --init --name memories-build-go -v "$SRC/go-vod":/src -v "$TMP":/out -w /src -u "$(id -u):$(id -g)" \
+docker run --rm --init --name memories-build-go -v "$SRC/go-vod":/src -v "$TMP":/out -w /src -u "$OWNER" \
     -e HOME=/tmp -e GOCACHE=/tmp/go-cache -e GOPATH=/tmp/go -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH=amd64 golang:1.27 \
     sh -c "go test ./ffmpeg/ && go build -buildvcs=false -ldflags='-s -w' -o /out/go-vod-amd64"
 
@@ -36,9 +38,10 @@ docker run --rm --init --name memories-build-go -v "$SRC/go-vod":/src -v "$TMP":
 EXIFTOOL_VER=$(grep -o "EXIFTOOL_VER = '[^']*" "$SRC/lib/Service/BinExt.php" | cut -d"'" -f2)
 if [ "$(cat "$SRC/bin-ext/.exiftool-ver" 2>/dev/null)" != "$EXIFTOOL_VER" ]; then
     echo "==> Fetching exiftool $EXIFTOOL_VER"
-    docker run --rm --init --name memories-bin-ext -v "$SRC":/app -w /app -u "$(id -u):$(id -g)" php:8-cli-alpine \
+    docker run --rm --init --name memories-bin-ext -v "$SRC":/app -w /app -u "$OWNER" php:8-cli-alpine \
         sh scripts/get-bin-ext.sh
     echo "$EXIFTOOL_VER" > "$SRC/bin-ext/.exiftool-ver"
+    chown "$OWNER" "$SRC/bin-ext/.exiftool-ver"
 fi
 
 echo "==> Backing up installed app to $BACKUP"
