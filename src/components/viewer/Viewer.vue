@@ -8,11 +8,18 @@
       'is-video': isVideo,
       'is-slideshow': !!slideshowTimer,
       'force-metadata': !!slideshowTimer && config.metadata_in_slideshow,
+      'frame-capture-open': !!frameCapturePlayer,
     }"
     :style="{ width: outerWidth }"
     @fullscreenchange="fullscreenChange"
   >
     <ImageEditor v-if="editorOpen && currentPhoto" :photo="currentPhoto" @close="editorOpen = false" />
+    <FrameCapture
+      v-if="frameCapturePlayer && currentPhoto"
+      :photo="currentPhoto"
+      :player="frameCapturePlayer"
+      @close="frameCapturePlayer = null"
+    />
 
     <!-- Loading indicator -->
     <XLoadingIcon class="loading-icon centered" v-if="loading" />
@@ -144,6 +151,7 @@ import * as nativex from '@native';
 import { makeTapPatch } from '@services/patches/mobile-click';
 
 import ImageEditor from './ImageEditor.vue';
+import FrameCapture from './FrameCapture.vue';
 import ViewerBottomSheet from './ViewerBottomSheet.vue';
 import ViewerSheetGestures from './ViewerSheetGestures.vue';
 import MobileBottomBar from '@components/MobileBottomBar.vue';
@@ -176,6 +184,7 @@ import EditFileIcon from 'vue-material-design-icons/FileEdit.vue';
 import AlbumRemoveIcon from 'vue-material-design-icons/BookRemove.vue';
 import AlbumIcon from 'vue-material-design-icons/ImageAlbum.vue';
 import RotateLeftIcon from 'vue-material-design-icons/RotateLeft.vue';
+import CameraIcon from 'vue-material-design-icons/CameraOutline.vue';
 
 type IViewerAction = {
   /** Identifier (optional) */
@@ -205,6 +214,7 @@ export default defineComponent({
     CheckCircleIcon,
     CheckCircleOutlineIcon,
     ImageEditor,
+    FrameCapture,
     MobileBottomBar,
     ViewerBottomSheet,
     ViewerSheetGestures,
@@ -219,6 +229,8 @@ export default defineComponent({
     originalTitle: null as string | null,
     editorOpen: false,
     editorSrc: '',
+    /** Player of the video being captured from */
+    frameCapturePlayer: null as MediaPlayerElement | null,
 
     show: false,
     fullyOpened: false,
@@ -341,7 +353,7 @@ export default defineComponent({
 
       // Bottom bar uses a fixed independent order.
       const edit = this.actions.some((a) => a.id === 'edit') ? 'edit' : 'edit-metadata';
-      const order = ['share', edit, 'add-to-album', 'delete', 'remove-from-album'];
+      const order = ['share', edit, 'save-frame', 'add-to-album', 'delete', 'remove-from-album'];
 
       // Get all actions available in this order.
       return this.actions
@@ -355,6 +367,8 @@ export default defineComponent({
             return { ...action, name: this.t('memories', 'Remove') };
           } else if (action.id === 'edit-metadata') {
             return { ...action, name: this.t('memories', 'Edit') };
+          } else if (action.id === 'save-frame') {
+            return { ...action, name: this.t('memories', 'Frame') };
           }
           return action;
         });
@@ -432,6 +446,13 @@ export default defineComponent({
           icon: markRaw(TuneIcon),
           callback: this.openEditor,
           if: this.canEdit && !this.isVideo,
+        },
+        {
+          id: 'save-frame',
+          name: this.t('memories', 'Save frame'),
+          icon: markRaw(CameraIcon),
+          callback: this.openFrameCapture,
+          if: this.isVideo && !this.routeIsPublic && !this.isLocal,
         },
         {
           id: 'download',
@@ -527,7 +548,7 @@ export default defineComponent({
 
     /** Allow closing the viewer */
     allowClose(): boolean {
-      return !this.editorOpen && !dav.isSingleItem() && !this.slideshowTimer;
+      return !this.editorOpen && !this.frameCapturePlayer && !dav.isSingleItem() && !this.slideshowTimer;
     },
 
     /** Get date taken date line */
@@ -796,6 +817,7 @@ export default defineComponent({
         this.isOpen = false;
         this.fullyOpened = false;
         this.editorOpen = false;
+        this.frameCapturePlayer = null;
         this.sheetOpen = false;
         this.photoswipe = null;
         this.list = [];
@@ -1215,6 +1237,14 @@ export default defineComponent({
 
       // Open editor
       this.editorOpen = true;
+    },
+
+    /** Pick a frame of the current video to save as a photo */
+    openFrameCapture() {
+      const player = this.photoswipe?.element?.querySelector<MediaPlayerElement>('.pswp__item.active media-player');
+      if (!player) return;
+      this.setBottomSheet(false);
+      this.frameCapturePlayer = markRaw(player);
     },
 
     /** Share the current photo externally */
@@ -1686,6 +1716,16 @@ export default defineComponent({
   .memories-viewer:has(.pswp--ui-visible):not(.is-slideshow) & {
     opacity: 1;
     pointer-events: auto;
+  }
+}
+
+.frame-capture-open {
+  .top-bar,
+  .top-bar-left,
+  .top-date,
+  .viewer-mobile-actions,
+  :deep(media-video-layout) {
+    display: none;
   }
 }
 

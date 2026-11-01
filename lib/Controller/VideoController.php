@@ -27,6 +27,7 @@ use OCA\Memories\Exceptions;
 use OCA\Memories\Exif;
 use OCA\Memories\HttpResponseException;
 use OCA\Memories\Service\BinExt;
+use OCA\Memories\Service\VideoFrame;
 use OCA\Memories\Settings\SystemConfig;
 use OCA\Memories\Util;
 use OCP\AppFramework\Http;
@@ -36,6 +37,9 @@ use OCP\AppFramework\Http\Attribute\PublicPage;
 use OCP\AppFramework\Http\DataDisplayResponse;
 use OCP\AppFramework\Http\JSONResponse;
 use OCP\Files\File;
+use OCP\Files\Folder;
+use OCP\Files\NotFoundException;
+use OCP\ITempManager;
 
 final class VideoController extends GenericApiController
 {
@@ -190,6 +194,87 @@ final class VideoController extends GenericApiController
 
             return $response;
         });
+    }
+
+    /**
+     * Save a full resolution frame of a video as a new photo.
+     * Saved next to the video, or in the user's frames folder if not writable there.
+     */
+    #[NoAdminRequired]
+    public function frame(int $fileid, float $time): Http\Response
+    {
+        return Util::guardEx(function () use ($fileid, $time) {
+            if (!Util::isLoggedIn()) {
+                throw Exceptions::NotLoggedIn();
+            }
+            if (!is_finite($time) || $time < 0) {
+                throw Exceptions::BadRequest('Invalid time');
+            }
+
+            // Album files resolve to the owner's folder, so only write next to own files
+            $own = $this->fs->getUserFolderFile($fileid);
+            $video = $own ?? $this->fs->getAlbumFile($fileid) ?? throw Exceptions::NotFoundFile($fileid);
+            if (!str_starts_with($video->getMimeType(), 'video/')) {
+                throw Exceptions::BadRequest('Not a video');
+            }
+
+            $path = $video->getStorage()->getLocalFile($video->getInternalPath())
+                ?: throw Exceptions::BadRequest('[Video] File path missing');
+            $info = $this->tq->getInfoById($fileid, false);
+
+            $folder = $own?->getParent();
+            if (!$folder?->isCreatable()) {
+                $folder = self::framesFolder();
+            }
+
+            $tmp = \OC::$server->get(ITempManager::class)->getTemporaryFile('.jpg')
+                ?: throw new \Exception('Failed to create temp file');
+
+            try {
+                VideoFrame::extract($path, $time, $tmp);
+                Exif::setExif($tmp, VideoFrame::exif($info['datetaken'], $info['exif'] ?? [], $time));
+
+                $name = $folder->getNonExistingName(VideoFrame::name($video->getName(), $time));
+                $file = $folder->newFile($name, fopen($tmp, 'r'));
+            } finally {
+                @unlink($tmp);
+            }
+
+            \OC::$server->get(\OCP\IPreview::class)->getPreview($file);
+
+            return new JSONResponse([
+                'fileid' => $file->getId(),
+                'basename' => $file->getName(),
+                'folder' => Util::getUserFolder()->getRelativePath($folder->getPath()),
+            ]);
+        });
+    }
+
+    /**
+     * Frames folder inside the user's first timeline path.
+     */
+    private static function framesFolder(): Folder
+    {
+        $userFolder = Util::getUserFolder();
+
+        try {
+            $root = $userFolder->get(Util::getTimelinePaths(Util::getUID())[0]);
+        } catch (NotFoundException) {
+            $root = $userFolder;
+        }
+        if (!$root instanceof Folder) {
+            $root = $userFolder;
+        }
+
+        $folder = $root->nodeExists(VideoFrame::FOLDER)
+            ? $root->get(VideoFrame::FOLDER)
+            : $root->newFolder(VideoFrame::FOLDER);
+
+        if (!$folder instanceof Folder || !$folder->isCreatable()) {
+            throw Exceptions::Forbidden('Cannot save to '.VideoFrame::FOLDER);
+        }
+
+        return $folder;
     }
 
     private function proxyProfile(string $client, int $fileid, string $profile): Http\Response

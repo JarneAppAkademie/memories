@@ -180,6 +180,7 @@ declare module '@typings' {
     FocalLength?: number;
 
     ExifVersion?: string;
+    FrameRate?: number;
     ColorSpace?: number;
 
     GPSAltitude?: number;

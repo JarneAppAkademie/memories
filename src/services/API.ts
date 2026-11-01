@@ -176,6 +176,10 @@ export class API {
     );
   }
 
+  static VIDEO_FRAME(fileid: number) {
+    return gen(`${BASE}/video/frame/{fileid}`, { fileid });
+  }
+
   static VIDEO_LIVEPHOTO(fileid: number) {
     return tok(gen(`${BASE}/video/livephoto/{fileid}`, { fileid }));
   }
