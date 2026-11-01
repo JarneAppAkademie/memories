@@ -32,22 +32,21 @@ docker run --rm --init --name memories-build-go -v "$SRC/go-vod":/src -v "$TMP":
     -e HOME=/tmp -e GOCACHE=/tmp/go-cache -e GOPATH=/tmp/go -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH=amd64 golang:1.27 \
     sh -c "go test ./ffmpeg/ && go build -buildvcs=false -ldflags='-s -w' -o /out/go-vod-amd64"
 
+# exiftool must match BinExt::EXIFTOOL_VER; the installed app's bin-ext may use another layout
+EXIFTOOL_VER=$(grep -o "EXIFTOOL_VER = '[^']*" "$SRC/lib/Service/BinExt.php" | cut -d"'" -f2)
+if [ "$(cat "$SRC/bin-ext/.exiftool-ver" 2>/dev/null)" != "$EXIFTOOL_VER" ]; then
+    echo "==> Fetching exiftool $EXIFTOOL_VER"
+    docker run --rm --init --name memories-bin-ext -v "$SRC":/app -w /app -u "$(id -u):$(id -g)" php:8-cli-alpine \
+        sh scripts/get-bin-ext.sh
+    echo "$EXIFTOOL_VER" > "$SRC/bin-ext/.exiftool-ver"
+fi
+
 echo "==> Backing up installed app to $BACKUP"
 docker cp "$NC:$APP" "$BACKUP"
 
-# Reuse exiftool binaries; they only match for the same upstream version.
-installed=$(grep -o '<version>[^<]*' "$BACKUP/appinfo/info.xml" | cut -d'>' -f2)
 fork=$(grep -o '<version>[^<]*' "$SRC/appinfo/info.xml" | cut -d'>' -f2)
-if [ "$installed" != "$fork" ]; then
-    echo "!! Installed version $installed differs from fork $fork; bin-ext may not match." >&2
-fi
-if [ ! -d "$BACKUP/bin-ext" ]; then
-    echo "!! No bin-ext in installed app; run scripts/get-bin-ext.sh first." >&2
-    exit 1
-fi
-
 mkdir -p "$DIST"
-cp -R "$SRC"/{appinfo,l10n,img,js,lib,templates,COPYING} "$SRC"/exiftest* "$BACKUP/bin-ext" "$DIST/"
+cp -R "$SRC"/{appinfo,l10n,img,js,lib,templates,bin-ext,COPYING} "$SRC"/exiftest* "$DIST/"
 cp "$TMP/go-vod-amd64" "$DIST/bin-ext/go-vod-amd64"
 
 echo "==> Installing fork $fork into $NC"
@@ -59,9 +58,14 @@ docker exec "$NC" chown -R www-data:www-data "$APP"
 # Drop Memories' cached go-vod copy and stop the running one; it restarts on demand
 docker exec "$NC" find /tmp -maxdepth 1 -type f -name 'go-vod-*' -delete
 docker exec "$NC" pkill -f go-vod- || true
+# Drop cached exiftool copies and the saved path; repair re-detects the bundled binary
+docker exec "$NC" find /tmp -maxdepth 1 -name 'exiftool-*' -exec rm -rf {} +
+occ config:system:delete memories.exiftool
+occ config:system:delete memories.exiftool_no_local
 trap - EXIT
 occ maintenance:mode --off
 occ upgrade # refuses to run in maintenance mode
+occ maintenance:repair
 # Routes are cached in APCu keyed on app versions; restart PHP so new routes apply
 echo "==> Restarting $NC"
 docker restart "$NC" >/dev/null
