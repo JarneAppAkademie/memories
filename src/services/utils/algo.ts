@@ -56,15 +56,25 @@ export function roundHalf(num: number) {
 }
 
 /** Choose a random element from an array */
-export function randomChoice<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+export function randomChoice<T>(arr: T[], rand = Math.random): T {
+  return arr[Math.floor(rand() * arr.length)];
+}
+
+/** Deterministic PRNG (mulberry32) returning numbers in [0, 1) */
+export function seededRandom(seed: number): () => number {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 /**
  * Choose a random sub array from an array
  * https://stackoverflow.com/a/11935263/4745239
  */
-export function randomSubarray<T>(arr: T[], size: number): T[] {
+export function randomSubarray<T>(arr: T[], size: number, rand = Math.random): T[] {
   if (arr.length <= size) return arr;
   let shuffled: T[] = [...arr],
     i: number = arr.length,
@@ -72,7 +82,7 @@ export function randomSubarray<T>(arr: T[], size: number): T[] {
     temp: T,
     index: number;
   while (i-- > min) {
-    index = Math.floor((i + 1) * Math.random());
+    index = Math.floor((i + 1) * rand());
     temp = shuffled[index];
     shuffled[index] = shuffled[i];
     shuffled[i] = temp;

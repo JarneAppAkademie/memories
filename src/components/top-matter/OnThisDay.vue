@@ -42,6 +42,7 @@ import type { IPhoto } from '@typings';
 
 import LeftMoveIcon from 'vue-material-design-icons/ChevronLeft.vue';
 import RightMoveIcon from 'vue-material-design-icons/ChevronRight.vue';
+import { fetchImage } from '@components/frame/XImgCache';
 import XImg from '@components/frame/XImg.vue';
 
 interface IYear {
@@ -114,20 +115,46 @@ export default defineComponent({
       const cacheUrl = `/onthisday/${dayIdToday}`;
       const cache = await utils.getCachedData<IPhoto[]>(cacheUrl);
       utils.applyAuids(cache);
-      if (cache) this.process(cache);
+      if (cache) this.process(cache, dayIdToday);
 
       // Network request
       const photos = await dav.getOnThisDayRaw();
       utils.applyAuids(photos);
       utils.cacheData(cacheUrl, photos);
 
+      // Warm tomorrow's strip once today's is done
+      const tomorrow = new Date(Date.now() + 86400 * 1000);
+      setTimeout(() => this.prefetch(tomorrow).catch(console.warn), 5000);
+
       // Check if exactly same as cache
       if (cache?.length === photos.length && cache.every((p, i) => p.fileid === photos[i].fileid)) return;
-      this.process(photos);
+      this.process(photos, dayIdToday);
     },
 
-    async process(photos: IPhoto[]) {
-      this.years = [];
+    /** Cache the response and previews for another day so its first load is instant */
+    async prefetch(date: Date) {
+      const dayId = utils.dateToDayId(date);
+      const cacheUrl = `/onthisday/${dayId}`;
+      if (await utils.getCachedData(cacheUrl)) return;
+
+      const photos = await dav.getOnThisDayRaw(date);
+      utils.applyAuids(photos);
+      utils.cacheData(cacheUrl, photos);
+
+      await Promise.allSettled(this.group(photos, dayId).map((y) => fetchImage(y.url)));
+    },
+
+    async process(photos: IPhoto[], dayId: number) {
+      this.years = this.group(photos, dayId);
+
+      await this.$nextTick();
+      this.onScroll();
+      this.onload();
+    },
+
+    /** Group photos by anniversary, picking photos seeded by day so previews stay cached */
+    group(photos: IPhoto[], dayId: number): IYear[] {
+      const years: IYear[] = [];
 
       let currentText = '';
       let prevDayId = Number.MAX_SAFE_INTEGER;
@@ -147,7 +174,7 @@ export default defineComponent({
           const year = dateTaken.getUTCFullYear();
           const text = utils.getFromNowStr(dateTaken, { padding: 10 });
           if (text !== currentText) {
-            this.years.push({
+            years.push({
               year,
               text,
               url: '',
@@ -159,27 +186,20 @@ export default defineComponent({
         }
         prevDayId = photo.dayid;
 
-        const yearObj = this.years[this.years.length - 1];
-        yearObj.photos.push(photo);
+        years[years.length - 1].photos.push(photo);
       }
 
-      // For each year, randomly choose 10 photos to display
-      for (const year of this.years) {
-        year.photos = utils.randomSubarray(year.photos, this.photosPerYear);
-      }
-
-      // Choose preview photo
-      for (const year of this.years) {
-        year.preview ||= utils.randomChoice(year.photos);
+      for (const year of years) {
+        const rand = utils.seededRandom(dayId * 10000 + year.year);
+        year.photos = utils.randomSubarray(year.photos, this.photosPerYear, rand);
+        year.preview = utils.randomChoice(year.photos, rand);
         year.url = utils.getPreviewUrl({
           photo: year.preview,
           msize: 512,
         });
       }
 
-      await this.$nextTick();
-      this.onScroll();
-      this.onload();
+      return years;
     },
 
     moveLeft() {

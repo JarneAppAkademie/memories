@@ -9,9 +9,8 @@ import type { IDay, IPhoto } from '@typings';
 /**
  * Get original onThisDay response.
  */
-export async function getOnThisDayRaw() {
+export async function getOnThisDayRaw(now = new Date()) {
   const dayIds: number[] = [];
-  const now = new Date();
   const nowUTC = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
 
   const dayRange = staticConfig.getSync('onthisday_day_range');
