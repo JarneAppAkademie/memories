@@ -66,7 +66,7 @@ class VideoFrame
      */
     public static function exif(int $datetaken, array $exif, float $time): array
     {
-        $ms = (int) round($time * 1000);
+        $ms = (int) round($time * 1000.0);
         $local = gmdate('Y:m:d H:i:s', $datetaken + intdiv($ms, 1000));
         $subsec = \sprintf('%03d', $ms % 1000);
 
@@ -105,7 +105,7 @@ class VideoFrame
      */
     public static function name(string $video, float $time): string
     {
-        $ms = (int) round($time * 1000);
+        $ms = (int) round($time * 1000.0);
 
         return \sprintf(
             '%s_frame_%02d-%02d-%03d.jpg',
